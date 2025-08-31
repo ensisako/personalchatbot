@@ -2,10 +2,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true, // prevents ESLint from failing production builds
-  },
-  outputFileTracing: false,   // fixes ENOENT with grouped segments like (protected)
+  eslint: { ignoreDuringBuilds: true },
   env: {
     KINDE_SITE_URL: process.env.KINDE_SITE_URL ?? "http://localhost:3000",
     KINDE_POST_LOGOUT_REDIRECT_URL:
