@@ -3,6 +3,14 @@ import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
 import { prisma } from '@/lib/prisma';
 import OpenAI from 'openai';
 
+// Prisma needs Node runtime; avoid caching this route
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const SUBJECTS = ['MATHS', 'MIDGE', 'DATABASE_SYSTEMS'] as const;
+type Subject = typeof SUBJECTS[number];
+
 function trim(str: string, max = 8000) {
   return str.length <= max ? str : str.slice(0, max);
 }
@@ -14,10 +22,16 @@ export async function POST(req: NextRequest) {
   try {
     const { getUser } = getKindeServerSession();
     const user = await getUser();
-    if (!user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!user?.email) {
+      const r = NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      r.headers.set('Cache-Control', 'no-store');
+      return r;
+    }
 
     const body = await req.json();
-    const subject = String(body.subject || 'MATHS') as 'MATHS' | 'MIDGE' | 'DATABASE_SYSTEMS';
+    const raw = String(body.subject || 'MATHS').toUpperCase();
+    const subject = (SUBJECTS.includes(raw as Subject) ? raw : 'MATHS') as Subject;
+
     const message = typeof body.message === 'string' ? body.message : '';
     const init = !!body.init;
     const intake: Array<{ q: string; a: string }> | undefined = Array.isArray(body.intake) ? body.intake : undefined;
@@ -31,7 +45,6 @@ export async function POST(req: NextRequest) {
     const degree = profile?.degree ?? 'BACHELORS';
 
     // ==== DOCUMENTS (GLOBAL POOL) ====
-    // Pool across ALL users by subject + level (as requested)
     const docs = await prisma.document.findMany({
       where: { subject: subject as any, level: level as any },
       orderBy: { createdAt: 'desc' },
@@ -45,7 +58,6 @@ export async function POST(req: NextRequest) {
 
     // ==== INIT: ask intake questions ====
     if (init) {
-      // Prefer doc-based prompts if model is available and we have docs
       if (client && docs.length) {
         try {
           const sys = `You create 4-5 short intake questions tailored to ${subject} at ${level} level, based ONLY on the document snippets below. Return JSON: { "ask": string[] } and nothing else.`;
@@ -64,14 +76,15 @@ export async function POST(req: NextRequest) {
           try {
             const json = JSON.parse(raw) as { ask?: string[] };
             if (json.ask && json.ask.length) {
-              return NextResponse.json({ ask: json.ask.slice(0, 6) });
+              const r = NextResponse.json({ ask: json.ask.slice(0, 6) });
+              r.headers.set('Cache-Control', 'no-store');
+              return r;
             }
-          } catch { /* fall through */ }
-        } catch { /* fall through */ }
+          } catch {}
+        } catch {}
       }
 
-      // Default fallback questions
-      return NextResponse.json({
+      const r = NextResponse.json({
         ask: [
           `Which topics in ${subject.replace('_', ' ')} are you working on now?`,
           'What’s your immediate goal (exam, assignment, concept mastery)?',
@@ -80,6 +93,8 @@ export async function POST(req: NextRequest) {
           'Any deadlines?',
         ],
       });
+      r.headers.set('Cache-Control', 'no-store');
+      return r;
     }
 
     // ==== OPTIONAL: persist intake summary into goals ====
@@ -122,7 +137,9 @@ export async function POST(req: NextRequest) {
         'Solve 2 related practice questions.',
         'Write a 3-bullet summary and one worked example.',
       ];
-      return NextResponse.json({ answer, nextSteps });
+      const r = NextResponse.json({ answer, nextSteps });
+      r.headers.set('Cache-Control', 'no-store');
+      return r;
     }
 
     // Call OpenAI (with graceful quota fallback)
@@ -150,17 +167,12 @@ export async function POST(req: NextRequest) {
         answer = raw || answer;
         nextSteps = nextSteps ?? ['Review key definitions', 'Try 2 practice problems', 'Summarise one concept in your own words'];
       }
-    } catch (e: any) {
-      // Quota or network fallback
-      const fbAnswer =
+    } catch {
+      answer =
         'AI quota hit. Here’s a quick plan from your notes: focus on key terms, a worked example, and 2 practice questions. Upload more specific notes for deeper help.';
-      const fbSteps = ['Extract 3 key ideas', 'Solve 2 problems', 'Write a brief summary'];
-      answer = fbAnswer;
-      nextSteps = fbSteps;
+      nextSteps = ['Extract 3 key ideas', 'Solve 2 problems', 'Write a brief summary'];
     }
 
-    // ==== Store interaction (for future training/quizzes) ====
-    // Note: we store per-user interaction, but docs are pooled.
     await prisma.interaction.create({
       data: {
         userEmail: user.email,
@@ -172,9 +184,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ answer, nextSteps, ask: askBack });
+    const r = NextResponse.json({ answer, nextSteps, ask: askBack });
+    r.headers.set('Cache-Control', 'no-store');
+    return r;
   } catch (e: any) {
     console.error(e);
-    return NextResponse.json({ error: 'Chat failed' }, { status: 500 });
+    const r = NextResponse.json({ error: 'Chat failed' }, { status: 500 });
+    r.headers.set('Cache-Control', 'no-store');
+    return r;
   }
 }
