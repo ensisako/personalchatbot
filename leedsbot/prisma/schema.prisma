@@ -1,0 +1,109 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum Degree {
+  BACHELORS
+  MASTERS
+  PHD
+}
+
+enum SubjectName {
+  MATHS
+  MIDGE
+  DATABASE_SYSTEMS
+}
+
+enum Level {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+model User {
+  email      String   @id
+  studentId  String   @unique
+  degree     Degree
+  degreeName String?
+  goals      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  subjectLvls  UserSubjectLevel[]
+  consents     ConsentSetting?
+  attempts     QuizAttempt[]
+  documents    Document[]
+  interactions Interaction[]
+}
+
+model UserSubjectLevel {
+  id        String      @id @default(cuid())
+  userEmail String
+  subject   SubjectName
+  level     Level
+
+  user User @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@unique([userEmail, subject])
+  @@index([userEmail, subject])
+}
+
+model ConsentSetting {
+  userEmail             String  @id
+  shareSameLevelUploads Boolean @default(false)
+
+  user User @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+}
+
+model Document {
+  id          String      @id @default(cuid())
+  ownerEmail  String
+  subject     SubjectName
+  level       Level
+  filename    String
+  mimeType    String
+  textContent String?
+  createdAt   DateTime    @default(now())
+
+  user User @relation(fields: [ownerEmail], references: [email], onDelete: Cascade)
+
+  @@index([ownerEmail])
+  @@index([subject, level])
+}
+
+model QuizAttempt {
+  id        String      @id @default(cuid())
+  userEmail String
+  subject   SubjectName
+  items     Json
+  responses Json
+  score     Int
+  maxScore  Int
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([userEmail, subject, createdAt])
+}
+
+model Interaction {
+  id         String      @id @default(cuid())
+  userEmail  String
+  subject    SubjectName
+  level      Level
+  prompt     String
+  answer     String?
+  usedDocIds String[] // which docs were used to answer
+  createdAt  DateTime    @default(now())
+
+  user User @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([userEmail, subject, level, createdAt])
+}
