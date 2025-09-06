@@ -1,7 +1,7 @@
 // src/app/onboarding/page.tsx
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
 import { redirect } from 'next/navigation';
-import OnboardingClient from './onBoardingClient';
+import OnboardingClient from './OnboardingClient';
 
 export default async function OnboardingPage() {
   const { getUser } = getKindeServerSession();
